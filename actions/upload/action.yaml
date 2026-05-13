@@ -1,0 +1,57 @@
+name: Upload to App Store
+description: Generates release notes from git history and uploads a build to the self-hosted app store.
+
+inputs:
+  file:
+    description: Path to the APK or IPA file
+    required: true
+  token:
+    description: X-Auth-Token for the app store
+    required: true
+  appstore_url:
+    description: App store base URL
+    required: true
+  description:
+    description: Short app description
+    required: false
+    default: ''
+  full_description:
+    description: Full app description
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Fetch tags
+      shell: bash
+      run: git fetch --tags --unshallow 2>/dev/null || git fetch --tags
+
+    - name: Generate release notes
+      shell: bash
+      run: |
+        PREV=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)
+        if [ -n "$PREV" ]; then
+          git log "$PREV"..HEAD --pretty=format:"- %s" > /tmp/release_notes.txt
+        else
+          touch /tmp/release_notes.txt
+        fi
+
+    - name: Upload
+      shell: bash
+      env:
+        TOKEN: ${{ inputs.token }}
+        APPSTORE_URL: ${{ inputs.appstore_url }}
+        DESC: ${{ inputs.description }}
+        FULL_DESC: ${{ inputs.full_description }}
+        FILE: ${{ inputs.file }}
+      run: |
+        printf '%s' "$DESC" > /tmp/upload_desc.txt
+        printf '%s' "$FULL_DESC" > /tmp/upload_full_desc.txt
+        curl -fsS \
+          -H "X-Auth-Token: $TOKEN" \
+          --form "file=@$FILE" \
+          --form "release_notes=</tmp/release_notes.txt" \
+          --form "description=</tmp/upload_desc.txt" \
+          --form "full_description=</tmp/upload_full_desc.txt" \
+          "$APPSTORE_URL/upload"
